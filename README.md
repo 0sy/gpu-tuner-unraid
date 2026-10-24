@@ -503,6 +503,10 @@ RTX PRO 6000 workstation managing an RTX 5090 box (x86_64, driver 595.91.07, `--
 as above), every one reached through the restricted forced-command key (2026-10-03). On 2026-10-04
 real changes were made from the page to the remote 5090 — its machine budget 425 → 450 W, then its
 power limit 425 → 450 W — each applied by that machine's daemon and read back by NVML on that
-machine, and an over-budget change was refused there as it should be. Not yet exercised on a
+machine, and an over-budget change was refused there as it should be. Exercised again 2026-10-23
+(driver 595.99) through the same channel: that machine's budget 450 → 575 W and its power limit
+450 → 575 W — the card's factory default, which is also its settable ceiling here, since a card
+with no profile may be raised to but not past its default — applied and read back by the daemon
+and by `nvidia-smi` on that machine. Not yet exercised on a
 remote machine from the page: a fan-curve or clock-cap change (same request path, covered by the
 dry-run and fake-machine tests).
