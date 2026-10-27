@@ -7,6 +7,7 @@ back from that record, so the whole control path can be exercised as a normal us
 from __future__ import annotations
 
 import ctypes
+import os
 
 # nvmlClocksEventReasons bits. Spelled out because the installed nvidia-ml-py (12.550) predates
 # the driver (595) and names some of these differently.
@@ -22,6 +23,10 @@ REASONS = (
     (0x0100, "display_clock", "Display clock setting"),
 )
 
+
+# A thermal zone outside this range is a placeholder, not a reading (0, negatives, the 127.5 C of an
+# unconnected sensor). A real SoC has shut down long before 125 C.
+SOC_TEMP_SANE_C = (1.0, 125.0)
 
 NVML_ERROR_NOT_SUPPORTED = 3            # stable NVML return codes; older pynvml may lack the names
 NVML_ERROR_FUNCTION_NOT_FOUND = 13
@@ -56,10 +61,10 @@ class Gpu:
 
 
 class Nvml:
-    def __init__(self, lib=None, dry_run=False, meminfo="/proc/meminfo"):
+    def __init__(self, lib=None, dry_run=False, meminfo="/proc/meminfo", thermal="/sys/class/thermal"):
         if lib is None:
             import pynvml as lib      # nvidia-ml-py; system-wide here, so root sees it too
-        self.n, self.dry_run, self.meminfo = lib, dry_run, meminfo
+        self.n, self.dry_run, self.meminfo, self.thermal = lib, dry_run, meminfo, thermal
         self.Error = lib.NVMLError
         self.writes = []              # audit trail of every write attempted (dry-run included)
         self._shadow = {}             # (uuid, what) -> value, dry-run only
@@ -159,6 +164,26 @@ class Nvml:
         except (OSError, KeyError, ValueError):
             return None, None
 
+    def soc_temp_c(self):
+        """Hottest kernel thermal zone in C, for a GPU that is part of a system-on-chip (mem_kind
+        "unified", e.g. GB10): there the zones measure the package the GPU sits in, and it is the
+        package, not the GPU die NVML reports, that runs hottest. None when no zone gives a sane
+        reading. Never called for a discrete card: its zones are the motherboard's."""
+        try:
+            zones = [z for z in os.listdir(self.thermal) if z.startswith("thermal_zone")]
+        except OSError:
+            return None
+        best = None
+        for z in zones:
+            try:
+                with open(os.path.join(self.thermal, z, "temp")) as f:
+                    c = int(f.read().strip()) / 1000
+            except (OSError, ValueError):       # a zone whose sensor is off reads EIO/ENODATA
+                continue
+            if SOC_TEMP_SANE_C[0] <= c <= SOC_TEMP_SANE_C[1] and (best is None or c > best):
+                best = c
+        return None if best is None else round(best, 1)
+
     def sample(self, g):
         n, h, t = self.n, g.handle, self._try
         util = t("nvmlDeviceGetUtilizationRates", h)
@@ -187,6 +212,7 @@ class Nvml:
             mem_total = None if mem is None else int(mem.total) >> 20
         return {
             "temp": t("nvmlDeviceGetTemperature", h, getattr(n, "NVML_TEMPERATURE_GPU", 0)),
+            "soc_temp": self.soc_temp_c() if g.mem_kind == "unified" else None,
             "fans": [t("nvmlDeviceGetFanSpeed_v2", h, f) for f in range(g.nfans)],
             "fan_target": t("nvmlDeviceGetTargetFanSpeed", h, 0) if g.nfans else None,
             "power_w": None if draw is None else round(draw / 1000, 1),

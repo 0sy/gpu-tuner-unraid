@@ -96,6 +96,12 @@ class Proto(unittest.TestCase):
         self.assertEqual((g["temp"], g["fans"], len(g["procs"])), (None, [40, None], 6))
         self.assertNotIn("cmdline", g["procs"][0])
 
+    def test_soc_temp_crosses_the_wire_only_as_a_finite_number(self):
+        s = proto.sanitize_sample({"seq": 1, "t": 5.0, "gpus": {"GPU-a": {"temp": 52, "soc_temp": 61.2},
+                                                               "GPU-b": {"temp": 52, "soc_temp": "<b>hot</b>"},
+                                                               "GPU-c": {"temp": 52, "soc_temp": 1e300 * 10}}})
+        self.assertEqual([s["gpus"][u]["soc_temp"] for u in ("GPU-a", "GPU-b", "GPU-c")], [61.2, None, None])
+
     def test_replies(self):
         ok = proto.sanitize_reply({"id": 4, "resp": {"ok": True, "gpus": [{"uuid": "GPU-a", "evil": 1}], "evil": 2}})
         self.assertTrue(ok["resp"]["ok"])
@@ -387,6 +393,7 @@ class Links(unittest.TestCase):
         self.assertFalse(s["daemon"]["power_settable"])
         wait_for(lambda: self.snap(lk)["live"]["gpus"], what="a sample")
         self.assertEqual(self.snap(lk)["live"]["gpus"][fakes.GB10]["mem_kind"], "unified")
+        self.assertEqual(self.snap(lk)["live"]["gpus"][fakes.GB10]["soc_temp"], 61.2)   # fakes.thermal_dir's hottest
 
     def test_change_is_routed_validated_and_read_back(self):
         args, record = self.daemon_args()
@@ -529,6 +536,17 @@ class Hub(unittest.TestCase):
         h = self.make({"a": ["--kind", "gb10"], "b": ["--kind", "gb10"]})
         self.assertTrue(any("reported by both" in w for w in h.state_json()["warnings"]))
 
+    def test_history_rows_narrower_than_series_read_as_gaps(self):
+        # A row written with fewer values per GPU than SERIES has now (an older row shape: no "soc")
+        # must keep its other series aligned for every GPU and read the missing ones as gaps.
+        h = hub.Hub([local("a")], lambda host: hub.NodeLink(host, fake_argv()))
+        h.links["a"].static = [{"uuid": "GPU-1"}, {"uuid": "GPU-2"}]
+        old = len(hub.SERIES) - 1
+        h.history["a"].append((time.time(), ("GPU-1", "GPU-2"), tuple(range(10, 10 + old)) + tuple(range(20, 20 + old))))
+        out = h.history_json("a", 300)
+        self.assertEqual([out["gpus"]["GPU-2"][k][0] for k in hub.SERIES[:old]], list(range(20, 20 + old)))
+        self.assertEqual((out["gpus"]["GPU-1"]["soc"], out["gpus"]["GPU-2"]["soc"]), ([None], [None]))
+
     def test_history_is_per_machine_on_the_hubs_clock_with_gaps(self):
         h = self.make({"a": ["--kind", "5090"], "b": ["--kind", "gb10"]})
         wait_for(lambda: all(lk.fresh_sample(time.monotonic()) for lk in h.links.values()), what="samples")
@@ -543,6 +561,9 @@ class Hub(unittest.TestCase):
         self.assertEqual(b["gpus"][fakes.GB10]["temp"][:3], [52, 52, 52])
         self.assertIsNone(b["gpus"][fakes.GB10]["temp"][3])               # a gap, not a stale value
         self.assertEqual(b["gpus"][fakes.GB10]["cap"][0], None)           # GB10: no software cap
+        self.assertEqual(b["gpus"][fakes.GB10]["soc"][:3], [61.2, 61.2, 61.2])
+        self.assertIsNone(b["gpus"][fakes.GB10]["soc"][3])
+        self.assertEqual(a["gpus"][RTX5090]["soc"], [None] * 4)            # a discrete card has no SoC series
         json.dumps(h.state_json(), allow_nan=False)
 
 

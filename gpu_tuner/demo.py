@@ -209,10 +209,12 @@ class Sim:
         if commit:
             self.energy_mj += int(power * 1000)
         mask = (0x1 if util < 5 else 0) | (0x4 if capped else 0) | (0x2 if clock_capped else 0)
+        # a system-on-chip GPU's package runs a few degrees above its die, more under load
+        soc = round(self.temp + 3 + 0.1 * power, 1) if sp["vram_mib"] is None else None
         self.r = {"util": util, "mem_util": int(level * 55) if util >= 5 else 0, "power_w": power,
                   "temp": int(round(self.temp)), "fan": fan, "clock": clock,
                   "mem_clock": 14001 if util >= 5 else 405, "pstate": 0 if util >= 5 else 8,
-                  "mask": mask, "vram": vram, "busy": busy, "level": level,
+                  "mask": mask, "vram": vram, "busy": busy, "level": level, "soc": soc,
                   "pcie_gen": 5 if util >= 5 else 1}
 
 
@@ -395,6 +397,13 @@ class DemoLib:
                 return int((38 + 30 * r["level"]) * 1024), UNIFIED_TOTAL_MIB
         return None, None
 
+    def soc_temp_c(self):
+        """The simulated SoC temperature of a unified-memory GPU, in place of /sys/class/thermal."""
+        for h, sp in enumerate(self.specs):
+            if sp["vram_mib"] is None:
+                return self._r(h)[1]["soc"]
+        return None
+
     # writes: only ever to the simulation
     def nvmlDeviceSetPersistenceMode(self, h, v):
         if self._spec(h)["pattern"] == "edge":
@@ -448,7 +457,7 @@ def history_rows(host_id, now_s, seconds=HISTORY_S):
         for sim in sims:
             sim.advance(t)
             r = sim.r
-            vals += [r["temp"], r["fan"], round(r["power_w"], 1), sim.limit_w, r["clock"], r["util"]]
+            vals += [r["temp"], r["fan"], round(r["power_w"], 1), sim.limit_w, r["clock"], r["util"], r["soc"]]
         rows.append((float(t), layout, tuple(vals)))
     return rows
 
@@ -465,10 +474,13 @@ def _demo_nvml(lib):
         def system_memory_mib(self):
             return self.n.unified_memory_mib()
 
+        def soc_temp_c(self):
+            return self.n.soc_temp_c()
+
         def processes(self, g):
             return self.n.processes(g.handle)
 
-    return DemoNvml(lib=lib, meminfo=os.devnull)
+    return DemoNvml(lib=lib, meminfo=os.devnull, thermal=os.devnull)
 
 
 def _demo_collector(nv, sock, plan):

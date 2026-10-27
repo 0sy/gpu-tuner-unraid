@@ -93,7 +93,8 @@ def main():
     sock = args.daemon_sock or os.path.join(tempfile.mkdtemp(), "absent.sock")
     if args.daemon_sock:
         run_daemon(lib, args.daemon_sock, args.state, None if args.budget == "null" else int(args.budget))
-    nv = Nvml(lib=lib, meminfo=fakes.meminfo_file(tempfile.mkdtemp()))
+    tmp = tempfile.mkdtemp()
+    nv = Nvml(lib=lib, meminfo=fakes.meminfo_file(tmp), thermal=fakes.thermal_dir(tmp))
     c = node.Collector(nv, sock)
     real_apply, real_sample, started = c.apply, c.sample, time.monotonic()
 

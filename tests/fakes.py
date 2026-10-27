@@ -160,6 +160,21 @@ class FakeOldLib(FakeLib):
 KINDS = {"pair": FakeLib, "gb10": FakeGB10, "5090": Fake5090}
 
 
+def thermal_dir(tmp, millidegrees=(48900, 61200, 46900), extra=None):
+    """A fake /sys/class/thermal: thermal_zoneN/temp per reading (millidegrees C, as the kernel
+    writes them). `extra` maps further entry names to file contents, or None for a zone with no
+    temp file, to plant the junk a real machine can have."""
+    root = os.path.join(tmp, "thermal")
+    entries = {f"thermal_zone{i}": str(v) for i, v in enumerate(millidegrees)}
+    entries.update(extra or {})
+    for name, text in entries.items():
+        os.makedirs(os.path.join(root, name), exist_ok=True)
+        if text is not None:
+            with open(os.path.join(root, name, "temp"), "w") as f:
+                f.write(text + "\n")
+    return root
+
+
 def meminfo_file(tmp, total_kib=128 * 1024 * 1024, avail_kib=96 * 1024 * 1024):
     path = os.path.join(tmp, "meminfo")
     with open(path, "w") as f:

@@ -23,7 +23,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
 
-from gpu_tuner import demo, hosts, hub, node, server  # noqa: E402
+from gpu_tuner import demo, hosts, hub, node, nvml, server  # noqa: E402
 from gpu_tuner.daemon import DEFAULT_SOCKET  # noqa: E402
 
 hub.log = lambda msg: None
@@ -64,17 +64,26 @@ class Simulation(unittest.TestCase):
         self.assertEqual(len(rows), demo.HISTORY_S - 1)
         self.assertEqual(rows[-1][0], float(now - 1))
         self.assertEqual(rows[0][1], (demo.CARDS["maxq"]["uuid"], WS))
+        n = len(hub.SERIES)
         for _t, _layout, vals in rows:
-            for i in range(0, len(vals), 6):
-                temp, fan, power, cap, clock, util = vals[i:i + 6]
+            self.assertEqual(len(vals), 2 * n)
+            for i in range(0, len(vals), n):
+                temp, fan, power, cap, clock, util, soc = vals[i:i + n]
+                self.assertIsNone(soc)                                    # discrete cards: no SoC
                 self.assertTrue(25 <= temp < 95, temp)                    # never at slowdown
                 self.assertTrue(30 <= fan <= 100, fan)
                 self.assertTrue(0 < power <= cap * 1.02, (power, cap))
                 self.assertTrue(180 <= clock <= 3090 and 0 <= util <= 100)
-                self.assertTrue(all(math.isfinite(v) for v in vals))
+                self.assertTrue(all(math.isfinite(v) for v in vals if v is not None))
         utils = [r[2][5] for r in rows]
         self.assertGreater(max(utils), 80)              # the charts show work...
         self.assertLess(min(utils), 10)                 # ...and idle gaps
+
+    def test_a_gb10_has_a_soc_temperature_above_its_gpu_die(self):
+        rows = demo.history_rows("edge-gb10", int(time.time()), seconds=600)
+        self.assertEqual([hub.SERIES[i] for i in (0, 6)], ["temp", "soc"])
+        for _t, _layout, vals in rows:
+            self.assertTrue(vals[0] + 2 < vals[6] < 99, vals)              # a few degrees over the die
 
     def test_seeded_history_joins_the_live_reading(self):
         now = int(time.time())
@@ -96,6 +105,18 @@ class Simulation(unittest.TestCase):
 
 
 class NothingReal(unittest.TestCase):
+    def test_soc_temperature_is_simulated_never_read_from_sys(self):
+        real = nvml.Nvml.soc_temp_c
+        nvml.Nvml.soc_temp_c = lambda _self: self.fail("the demo read /sys/class/thermal")
+        try:
+            p = demo.plan_for("edge-gb10")
+            lib = demo.DemoLib(p)
+            g = demo._demo_collector(demo._demo_nvml(lib), "/nonexistent.sock", p).sample()[GB10]
+            self.assertEqual(g["soc_temp"], lib.sims[0].r["soc"])
+            self.assertGreater(g["soc_temp"], g["temp"])
+        finally:
+            nvml.Nvml.soc_temp_c = real
+
     def test_node_reports_made_up_hostname_and_process_names_without_reading_proc(self):
         real_comm = node._comm
         node._comm = lambda pid: self.fail("the demo read /proc for a process name")

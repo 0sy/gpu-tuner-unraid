@@ -101,6 +101,7 @@ button.small[aria-pressed="true"] { background: var(--wash); font-weight: 600; }
 .key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
 .linekey { display: inline-block; width: 14px; height: 0; border-top: 2px solid; margin-right: 6px; vertical-align: 3px; }
 .linekey.cap { border-top-style: dashed; border-top-width: 1px; }
+.linekey.soc { border-top-style: dotted; }
 .facts { margin: 0; display: grid; gap: 10px; align-content: start; }
 .facts dt { font-size: 12.5px; color: var(--ink2); }
 .facts dd { margin: 0; font-size: 15px; font-weight: 600; }
@@ -185,6 +186,7 @@ label.check input { accent-color: var(--accent); }
 .chart text { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .chart .line { stroke: var(--series); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
 .chart .capline { stroke: var(--series); stroke-width: 1; fill: none; stroke-dasharray: 4 3; }
+.chart .socline { stroke: var(--series); stroke-width: 2; fill: none; stroke-dasharray: 0.5 4; stroke-linecap: round; }
 .chart .ref { stroke: var(--critical); stroke-width: 1; }
 .chart .dot { fill: var(--series); stroke: var(--surface); stroke-width: 2; }
 .chart .cross { stroke: var(--axis); stroke-width: 1; }

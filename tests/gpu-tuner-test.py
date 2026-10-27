@@ -23,7 +23,7 @@ from gpu_tuner.nvml import Nvml  # noqa: E402
 daemon_mod.log = lambda msg: None      # the daemon narrates every decision; keep test output readable
 
 from fakes import (FakeGB10, FakeLib, FakeOldLib, GB10, MAXQ, WS,  # noqa: E402
-                   meminfo_file)
+                   meminfo_file, thermal_dir)
 
 
 def make_daemon(tmp, budget=750, state=None, lib=None):
@@ -473,6 +473,28 @@ class Gb10(unittest.TestCase):
         nv = Nvml(lib=FakeLib())
         self.assertEqual(nv.gpus[0].mem_kind, "dedicated")
         self.assertEqual(nv.sample(nv.gpus[0])["vram_total_mib"], 96 << 10)
+
+    def test_soc_temp_is_the_hottest_sane_thermal_zone(self):
+        # junk a real machine can have: an unconnected sensor (127.5), a zero, a negative, text,
+        # a zone with no temp file, and an entry that is not a zone at all
+        root = thermal_dir(self.tmp, (48900, 61234, 46900), extra={
+            "thermal_zone3": "127500", "thermal_zone4": "0", "thermal_zone5": "-5000",
+            "thermal_zone6": "garbage", "thermal_zone7": None, "cooling_device0": "99000"})
+        nv = Nvml(lib=FakeGB10(), meminfo=meminfo_file(self.tmp), thermal=root)
+        self.assertEqual(nv.soc_temp_c(), 61.2)
+        s = nv.sample(nv.gpus[0])
+        self.assertEqual((s["temp"], s["soc_temp"]), (52, 61.2))      # the GPU die and the package, apart
+
+    def test_soc_temp_is_none_without_a_readable_zone(self):
+        nv = Nvml(lib=FakeGB10(), meminfo=meminfo_file(self.tmp), thermal=os.path.join(self.tmp, "absent"))
+        self.assertIsNone(nv.sample(nv.gpus[0])["soc_temp"])
+        empty = thermal_dir(os.path.join(self.tmp, "e"), (), extra={"thermal_zone0": "127500"})
+        self.assertIsNone(Nvml(lib=FakeGB10(), meminfo=meminfo_file(self.tmp), thermal=empty).soc_temp_c())
+
+    def test_discrete_card_never_reports_a_soc_temp(self):
+        # its thermal zones are the motherboard's, not the card's package
+        nv = Nvml(lib=FakeLib(), thermal=thermal_dir(self.tmp, (70000,)))
+        self.assertEqual([nv.sample(g)["soc_temp"] for g in nv.gpus], [None, None])
 
 
 class LowSlowdownCard(FakeLib):

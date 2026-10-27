@@ -192,6 +192,9 @@ def main():
         check(gpus == ["Max-Q", "Workstation"], f"cards are Max-Q + Workstation ({gpus})")
 
         print("apply (dry-run daemon)")
+        # The hero adds both cards' limits; the Max-Q keeps whatever limit it really has (300 W until
+        # 2026-10, 325 W since), so expect its real value, not a hard-coded one.
+        maxq = int(browser.js("return document.querySelectorAll('.gpu')[0].querySelector('input[type=number]').value"))
         r = browser.js("""
           const card = document.querySelectorAll('.gpu')[1];
           const num = card.querySelector('input[type=number]'); num.value = 600; num.dispatchEvent(new Event('input', {bubbles:true}));
@@ -215,14 +218,14 @@ def main():
           [...card.querySelectorAll('button')].find(x => x.textContent.startsWith('Apply anyway')).click();""")
         time.sleep(2)
         r = browser.js("const c = document.querySelectorAll('.gpu')[1]; return [c.querySelector('.msg').textContent, document.querySelector('.hostview:not([hidden]) .b-used').textContent]")
-        check("confirmed" in r[0] and "600 W in force" in r[0] and r[1] == "900", f"confirmed override applied 600 W; hero shows 900 ({r})")
+        check("confirmed" in r[0] and "600 W in force" in r[0] and r[1] == str(maxq + 600), f"confirmed override applied 600 W; hero shows {maxq + 600} ({r})")
         browser.js("""
           const card = document.querySelectorAll('.gpu')[1];
           const num = card.querySelector('input[type=number]'); num.value = 425; num.dispatchEvent(new Event('input', {bubbles:true}));
           [...card.querySelectorAll('button')].find(x => x.textContent === 'Apply power limit').click();""")
         time.sleep(2)
         r = browser.js("const c = document.querySelectorAll('.gpu')[1]; return [c.querySelector('.msg').textContent, document.querySelector('.hostview:not([hidden]) .b-used').textContent]")
-        check("425 W in force" in r[0] and r[1] == "725", f"lowering back down applies with no confirm needed; hero shows 725 ({r})")
+        check("425 W in force" in r[0] and r[1] == str(maxq + 425), f"lowering back down applies with no confirm needed; hero shows {maxq + 425} ({r})")
 
         print("budget editor")
         before = browser.js("return document.querySelector('.hostview:not([hidden]) .b-input').value")
@@ -294,16 +297,18 @@ def main():
         r = browser.js("""
           const v = document.querySelector('.hostview:not([hidden])');
           return [location.hash, v.dataset.host, v.querySelector('.gpu h2').textContent,
-                  [...v.querySelectorAll('.tile .label')].map(x => x.textContent)[4],
+                  [...v.querySelectorAll('.tile .label')].map(x => x.textContent)[5],
                   [...v.querySelectorAll('fieldset')].filter(f => !f.hidden).length,
                   v.querySelector('.unsupported').textContent, v.querySelector('.banner').textContent,
                   v.querySelector('.budget').hidden, document.getElementById('hist-h').textContent,
-                  document.querySelectorAll('.chart:not([hidden])').length];""")
+                  document.querySelectorAll('.chart:not([hidden])').length,
+                  [...v.querySelectorAll('.tile:not([hidden])')].map(x => x.textContent).filter(x => x.startsWith('SoC'))];""")
         check(r[:5] == ["#host=gb10", "gb10", "GB10", "System memory (shared)", 0],
               f"GB10 tab: unified memory, no power/fan/clock controls ({r[:5]})")
         check("power limit, fan control, clock cap" in r[5] and "Monitor-only, and that is all Spark 1 needs" in r[6] and r[7] is True
               and r[8] == "History · Spark 1", f"GB10 says why, is monitor-only, has no budget panel ({r[5:9]})")
         check(r[9] == 4, f"no empty fan chart for a fanless machine ({r[9]} charts shown)")
+        check(len(r[10]) == 1 and "61 °C" in r[10][0], f"GB10: a SoC temperature tile with the hottest thermal zone ({r[10]})")
         r = browser.js("""
           const v = document.querySelector('.hostview:not([hidden])');
           return [v.querySelector('.gpu header .sub').textContent, v.querySelector('.tile .sub').textContent];""")

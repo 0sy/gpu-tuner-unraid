@@ -122,7 +122,7 @@ STATIC_GPU = {
     "thresholds": ("map", NUM, 8), "mem_kind": STR, "clock_min_mhz": NUM, "clock_max_mhz": NUM,
 }
 SAMPLE_GPU = {
-    "temp": NUM, "fans": ("list", NUM, 16), "fan_target": NUM, "power_w": NUM, "power_limit_w": NUM,
+    "temp": NUM, "soc_temp": NUM, "fans": ("list", NUM, 16), "fan_target": NUM, "power_w": NUM, "power_limit_w": NUM,
     "util": NUM, "mem_util": NUM, "vram_used_mib": NUM, "vram_total_mib": NUM, "mem_kind": STR,
     "clock_mhz": NUM, "mem_clock_mhz": NUM, "pstate": NUM, "reasons": ("list", STR, 16),
     "pcie_gen": NUM, "pcie_gen_max": NUM, "pcie_width": NUM, "pcie_width_max": NUM,

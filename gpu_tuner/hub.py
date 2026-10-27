@@ -21,7 +21,7 @@ from . import proto
 HISTORY_S = 6 * 3600
 MAX_POINTS = 900               # a 15 min window is served raw; longer ones are bucket-averaged
 WINDOWS = (300, 900, 3600, HISTORY_S)
-SERIES = ("temp", "fan", "power", "cap", "clock", "util")
+SERIES = ("temp", "fan", "power", "cap", "clock", "util", "soc")   # soc: SoC GPUs only, else None
 FRESH_S = 2.5                  # a sample older than this is a gap in the charts
 STALE_S = 3.0                  # no sample for this long: the host shows as stale
 HELLO_TIMEOUT_S = 25.0         # ssh connect + NVML init on the far side
@@ -423,7 +423,7 @@ class Hub:
                     g = s["gpus"][u] or {}
                     fans = [f for f in (g.get("fans") or []) if f is not None]
                     vals += [g.get("temp"), max(fans) if fans else None, g.get("power_w"),
-                             g.get("power_limit_w"), g.get("clock_mhz"), g.get("util")]
+                             g.get("power_limit_w"), g.get("clock_mhz"), g.get("util"), g.get("soc_temp")]
                 self.history[hid].append((t, layout, tuple(vals)))
 
     def seed_history(self, hid, rows):
@@ -459,8 +459,10 @@ class Hub:
                     vals = []
                     for _t, layout, flat in chunk:
                         pos = pos_of(layout, u) if layout else None
-                        if pos is not None and flat[pos * 6 + k] is not None:
-                            vals.append(flat[pos * 6 + k])
+                        # each row's own width: a row written with fewer series reads the rest as gaps
+                        w = len(flat) // len(layout) if layout else 0
+                        if pos is not None and k < w and flat[pos * w + k] is not None:
+                            vals.append(flat[pos * w + k])
                     out["gpus"][u][key].append(round(sum(vals) / len(vals), 1) if vals else None)
         return out
 

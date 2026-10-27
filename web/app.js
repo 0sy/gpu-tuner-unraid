@@ -239,9 +239,9 @@ class GpuCard {
     this.t = {};
     const tile = (key, label) => {
       const value = el('div', { class: 'value' }), sub = el('div', { class: 'sub' }), extra = el('div');
-      const name = el('div', { class: 'label' }, label);
-      this.t[key] = { value, sub, extra, name };
-      return el('div', { class: 'tile' }, name, value, extra, sub);
+      const name = el('div', { class: 'label' }, label), root = el('div', { class: 'tile' }, name, value, extra, sub);
+      this.t[key] = { value, sub, extra, name, root };
+      return root;
     };
     this.title = el('h2');
     this.subtitle = el('span', { class: 'sub' });
@@ -251,7 +251,7 @@ class GpuCard {
     this.unsupported = el('div', { class: 'sub unsupported' });
     this.root = el('article', { class: `gpu s${slot}` },
       el('header', {}, el('span', { class: 'key' }), this.title, this.chips, this.subtitle),
-      el('div', { class: 'tiles' }, tile('temp', 'Temperature'), tile('fan', 'Fan'), tile('power', 'Power draw'),
+      el('div', { class: 'tiles' }, tile('temp', 'Temperature'), tile('soc', 'SoC temperature'), tile('fan', 'Fan'), tile('power', 'Power draw'),
         tile('util', 'GPU utilization'), tile('vram', 'VRAM'), tile('clock', 'Core clock'),
         tile('limit', 'Clock limiter'), tile('energy', 'Energy used')),
       this.procs, this.note, this.buildPower(), this.buildFan(), this.buildClock(), this.unsupported, this.buildBaseline());
@@ -533,10 +533,17 @@ class GpuCard {
     t.util.sub.textContent = `memory bus ${n0(lv.mem_util)}%` +
       (lv.encoder_util || lv.decoder_util ? ` · encode ${n0(lv.encoder_util)}% · decode ${n0(lv.decoder_util)}%` : '');
     const unified = (lv.mem_kind || this.stat.mem_kind) === 'unified';
+    t.temp.name.textContent = unified ? 'GPU temperature' : 'Temperature';
     t.vram.name.textContent = unified ? 'System memory (shared)' : 'VRAM';
     t.vram.value.replaceChildren(gib(lv.vram_used_mib), el('small', {}, ` / ${gib(lv.vram_total_mib)} GiB`));
     this.meter(t.vram.extra, lv.vram_used_mib, lv.vram_total_mib);
     t.vram.sub.textContent = unified ? 'the GPU shares RAM with the CPU; this is the whole machine' : '';
+    // A system-on-chip GPU (unified memory, e.g. GB10) sits in a package that runs hotter than the
+    // die NVML reports; the node sends the hottest kernel thermal zone. Discrete cards get no tile.
+    t.soc.root.hidden = !unified;
+    t.soc.value.replaceChildren(n0(lv.soc_temp), el('small', {}, ' °C'));
+    t.soc.sub.textContent = lv.soc_temp != null ? 'hottest thermal zone: the whole chip, CPU and GPU'
+      : 'not reported (no readable thermal zone, or an older gpu-tuner on that machine)';
     t.clock.value.replaceChildren(n0(lv.clock_mhz), el('small', {}, ' MHz'));
     t.clock.sub.textContent = `memory ${n0(lv.mem_clock_mhz)} MHz · P${lv.pstate ?? '–'}` + (d.settings.clock_cap_mhz ? ` · capped ${n0(d.settings.clock_cap_mhz)}` : '');
     const r = lv.reasons || [], names = S.st.reasons;
@@ -770,7 +777,7 @@ function renderFleet() {
         el('td', {}, i ? el('span', { class: 'sr' }, h.label) : pick),
         el('td', {}, i ? '' : chip),
         el('td', {}, name),
-        el('td', {}, lv.temp != null ? `${n0(lv.temp)} °C` : '–'),
+        el('td', {}, (lv.temp != null ? `${n0(lv.temp)} °C` : '–') + (lv.soc_temp != null ? ` · SoC ${n0(lv.soc_temp)} °C` : '')),
         el('td', {}, lv.power_limit_w != null ? `${n0(lv.power_w)} / ${n0(lv.power_limit_w)} W` : `${n0(lv.power_w)} W`),
         el('td', {}, lv.util != null ? `${n0(lv.util)} %` : '–'),
         el('td', {}, lv.clock_mhz != null ? `${n0(lv.clock_mhz)} MHz` : '–'),
@@ -820,7 +827,7 @@ function pickInitialHost() {
 
 // ── charts ───────────────────────────────────────────────────────────────────────────────────
 const CHARTS = [
-  { key: 'temp', title: 'Temperature', unit: '°C', domain: [20, 100], tlimit: true },
+  { key: 'temp', title: 'Temperature', unit: '°C', domain: [20, 100], tlimit: true, soc: true },
   { key: 'fan', title: 'Fan speed', unit: '%', domain: [0, 100], hint: 'fastest fan on each card' },
   { key: 'power', title: 'Power draw', unit: 'W', cap: true },
   { key: 'clock', title: 'Core clock', unit: 'MHz' },
@@ -898,6 +905,7 @@ class Chart {
     for (const c of cards) {
       const s = series(c, k);
       if (def.cap) g.push(sv('path', { class: `capline s${c.slot}`, d: this.path(h.t, series(c, 'cap')) }));
+      if (def.soc) g.push(sv('path', { class: `socline s${c.slot}`, d: this.path(h.t, series(c, 'soc')) }));
       g.push(sv('path', { class: `line s${c.slot}`, d: this.path(h.t, s) }));
       let j = s.length - 1; while (j >= 0 && s[j] == null) j--;
       if (j >= 0) g.push(sv('circle', { class: `dot s${c.slot}`, cx: this.px(h.t[j]), cy: this.py(s[j]), r: 4 }));
@@ -920,16 +928,20 @@ class Chart {
     }
     this.hover.replaceChildren(...marks);
     // the legend doubles as the readout: latest values, or the values under the crosshair
+    const soc = c => (this.def.soc && n ? series(c, 'soc')[i] : null);
     const keys = cards.map(c => el('span', {}, el('span', { class: `linekey s${c.slot}` }), cardName(c) + ' ',
-      el('b', {}, n ? n1(series(c, k)[i]) : '–')));
+      el('b', {}, n ? n1(series(c, k)[i]) : '–'), soc(c) != null ? ` · SoC ${n1(soc(c))}` : ''));
     if (this.def.cap) keys.push(el('span', {}, el('span', { class: 'linekey cap s1' }), 'dashed: power cap'));
+    if (this.def.soc && cards.some(c => series(c, 'soc').some(v => v != null)))
+      keys.push(el('span', {}, el('span', { class: 'linekey soc s1' }), 'dotted: SoC (whole chip)'));
     this.legend.replaceChildren(...keys);
     const show = this.own && S.hoverT != null && n;
     this.tip.hidden = !show;
     if (show) {
       this.tip.replaceChildren(el('div', { class: 'when' }, hhmm(h.t[i], true)), ...cards.map(c => el('div', { class: 'r' },
         el('span', { class: `linekey s${c.slot}` }), el('b', {}, `${n1(series(c, k)[i])} ${this.def.unit}`), el('span', { class: 'n' }, cardName(c)),
-        this.def.cap ? el('span', { class: 'n' }, ` · cap ${n0(series(c, 'cap')[i])} W`) : null)));
+        this.def.cap ? el('span', { class: 'n' }, ` · cap ${n0(series(c, 'cap')[i])} W`) : null,
+        soc(c) != null ? el('span', { class: 'n' }, ` · SoC ${n1(soc(c))} °C`) : null)));
       const x = this.px(h.t[i]), flip = x > this.W * 0.6;
       this.tip.style.left = flip ? '' : (x + 24) + 'px';
       this.tip.style.right = flip ? (this.W - x + 24) + 'px' : '';

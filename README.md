@@ -1,7 +1,7 @@
 # gpu-tuner — power caps, fan curves and clock caps for NVIDIA GPUs, on one machine or several, with a GUI
 
-A local web page (`http://127.0.0.1:8765/`) that shows every detected card live — temperature,
-fan, power, clocks, utilization, VRAM (or shared system memory), encode/decode, ECC, PCIe link
+A local web page (`http://127.0.0.1:8765/`) that shows every detected card live — temperature
+(plus the chip's own on a system-on-chip GPU such as GB10), fan, power, clocks, utilization, VRAM (or shared system memory), encode/decode, ECC, PCIe link
 width, persistence mode, what is limiting the clock, what is resident — with six hours of charts,
 and lets you change the three things that are safe to change on any card, whatever model or how
 many there are. One page can also manage **other machines on your network** over ssh, each one
@@ -252,7 +252,13 @@ gpu-tuner serve (page) ── ssh, restricted key ──▶  gpu-tuner node --st
 **What to expect from a DGX Spark (GB10).** Measured on four of them (aarch64, driver 580.178.04,
 2026-10-03): NVML reports no power limit, no fans, no supported-clock list and no memory info —
 firmware manages the whole chip — so a Spark shows temperature, power draw, clocks, utilization
-and *system* memory (shared with the GPU), and offers no controls. Install it with `--node`: there
+and *system* memory (shared with the GPU), and offers no controls. It also shows the **SoC
+temperature**: the hottest of the kernel's thermal zones (`/sys/class/thermal`), which on a GB10
+measure the package the GPU sits in. On three Sparks under load (GPU at 70 °C or more, the week
+to 2026-10-26) it averaged 11-14 °C above the GPU die NVML reports and reached 24 °C above it (2-4 °C
+at idle), so it is the number to watch on a Spark; it is a tile, a dotted line on the
+temperature chart and part of the machines table. Discrete cards never get one: their machine's
+thermal zones are the motherboard's. Install it with `--node`: there
 is nothing for a root daemon to do. Its thresholds come back as T.Limit 99 °C, slowdown 86 °C and
 shutdown 90 °C, so the page measures headroom against whichever threshold a card reports lowest,
 and names it. `./gpu-tuner probe` (or `ssh <host> python3 - < gpu_tuner/probe.py` before
@@ -359,6 +365,18 @@ page come from `/proc/<pid>/comm`, never `cmdline` (command lines here carry API
 a fixed speed until the next write, so a curve has to be re-evaluated as temperature moves.
 
 ## Security review
+
+### SoC temperature (1.3.0, 2026-10-26)
+
+- **One new read, no new write or input.** A node now reads `/sys/class/thermal/thermal_zone*/temp`
+  (world-readable) for GPUs that report unified memory. The directory is fixed in code, not taken from
+  the page, the hub or `hosts.json`; nothing new is written and no new request type exists.
+- **The hub takes it like every other reading.** `soc_temp` is one more number in the sample
+  whitelist (`proto.py`), so NaN, huge values and wrong types are rejected as before. The protocol
+  number is unchanged: an older node simply sends no SoC value and the page says it was not reported.
+- **Discrete cards never show one**, whatever the motherboard's zones read, and readings outside
+  1-125 °C (0, negatives, the 127.5 °C of an unconnected sensor) are dropped rather than shown.
+- This change has not had an independent review.
 
 ### Demo mode (1.2.0, 2026-10-26)
 
@@ -517,25 +535,27 @@ and logged exactly as it would be; nothing is written to the cards.
 
 `bash tests/gpu-tuner-test.sh` (from this directory) — offline, no GPU, no root, no ssh:
 
-- `tests/gpu-tuner-test.py`, 72 tests against fake NVML (`tests/fakes.py`): budget (soft override,
+- `tests/gpu-tuner-test.py`, 75 tests against fake NVML (`tests/fakes.py`): budget (soft override,
   `BudgetExceeded` vs a hard `SafetyError`, no-budget machines), ranges (including "NVML reports
   none" being `None`, never a 0-0 W range), per-card floor, curve rules, hysteresis, faults,
   persistence, drift re-apply, the restart-race socket handoff, default fan curves that fit each
   card's own thresholds, a GB10-like machine (no writes,
-  no lasting warnings, unified memory), an older pynvml missing bindings, the install seed
+  no lasting warnings, unified memory, the SoC temperature from fake thermal zones with the junk
+  ones ignored, none on a discrete card), an older pynvml missing bindings, the install seed
   (`[N/A]`, mixed, no budget, fan default), and hostile requests on the daemon's socket (deep
   nesting, an unexpected error inside a request: both answered, the daemon keeps running).
-- `tests/gpu-tuner-fleet-test.py`, 36 tests, ~25 s: the protocol (NaN, `1e999`, oversize,
+- `tests/gpu-tuner-fleet-test.py`, 38 tests, ~25 s: the protocol (NaN, `1e999`, oversize,
   nesting, huge ints, whitelists), `hosts.json` (injection attempts, file ownership/mode/symlink,
   the exact ssh argv, no key means no ssh, the restricted-key line), the node (hello first, only
   whitelisted ops and fields reach the daemon, exits on EOF / silence / broken pipe), links to
   `tests/fake_node.py` subprocesses (reconnect, stale, timeout, busy, down, incompatible version,
   malformed hello, unannounced GPUs, fatal, shell noise, unrestricted key, ssh failure
-  messages), routing (a change reaches only the named machine), history gaps, and the HTTP API.
-- `tests/gpu-tuner-demo-test.py`, 15 tests, ~2 s: demo mode. The simulation (cards load through
-  the real NVML wrapper, the same second gives the same reading in two processes, six hours of
+  messages), routing (a change reaches only the named machine), history gaps (and rows narrower than the
+  current series list), the SoC temperature end to end, and the HTTP API.
+- `tests/gpu-tuner-demo-test.py`, 17 tests, ~2 s: demo mode. The simulation (cards load through
+  the real NVML wrapper, a GB10's SoC temperature a few degrees over its die, the same second gives the same reading in two processes, six hours of
   plausible history that joins the live readings, writes land on the simulated card), that nothing
-  real is used (no `/proc` reads, made-up hostnames and process names, no ssh or real daemon socket
+  real is used (no `/proc` reads, no `/sys/class/thermal` reads, made-up hostnames and process names, no ssh or real daemon socket
   in a demo node's command line, `pynvml` cannot be imported in a demo process), and the page end
   to end under a scratch `HOME`: its own cookie, the real page's request checks, three machines up,
   a change applied through the daemon's checks and read back, a monitor-only machine refusing, and
@@ -550,13 +570,14 @@ warn-then-confirm flow, the budget editor, power/fan/clock apply and read-back, 
 editing across a re-render, baseline reset, no JS errors, no overflow at phone width. Then
 `tests/fake_hub.py` serves the real page over four fake machines (a 2x RTX PRO 6000 box, a GB10, a
 5090, an unreachable one) and the test checks the fleet strip and tabs, the GB10's monitor-only
-view (no PCIe riser false alarm, headroom against its lowest threshold), that
+view (no PCIe riser false alarm, headroom against its lowest threshold, a SoC temperature tile), that
 a change on the 5090's tab reaches only that machine's daemon, and the unreachable machine's
 explanation. Nothing is written to the cards.
 
 All three pass as of 2026-10-04 on driver 595.91 (the live one: 42/42). The demo suite was added and passes as of
 2026-10-26. The opt-in live suite was not re-run for 1.2.0; the page's own change is the demo notice,
-which only appears in demo mode.
+which only appears in demo mode. For 1.3.0 it was re-run on 2026-10-26 (driver 595.91): 43/43, with the
+new SoC tile check, after its two power-total checks stopped assuming the Max-Q sits at 300 W.
 
 Also run against real machines, set up with the "several machines at once" loop above: a page on the
 RTX PRO 6000 workstation managing an RTX 5090 box (x86_64, driver 595.91.07, `--no-ui`: power
