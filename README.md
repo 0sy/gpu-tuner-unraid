@@ -577,7 +577,8 @@ explanation. Nothing is written to the cards.
 All three pass as of 2026-10-04 on driver 595.91 (the live one: 42/42). The demo suite was added and passes as of
 2026-10-26. The opt-in live suite was not re-run for 1.2.0; the page's own change is the demo notice,
 which only appears in demo mode. For 1.3.0 it was re-run on 2026-10-26 (driver 595.91): 43/43, with the
-new SoC tile check, after its two power-total checks stopped assuming the Max-Q sits at 300 W.
+new SoC tile check, after its two power-total checks stopped assuming the Max-Q sits at 300 W. For
+1.3.1 (a fanless card has no Fan tile, so a GB10's eight tiles fit one row): 45/45 on 2026-10-26.
 
 Also run against real machines, set up with the "several machines at once" loop above: a page on the
 RTX PRO 6000 workstation managing an RTX 5090 box (x86_64, driver 595.91.07, `--no-ui`: power

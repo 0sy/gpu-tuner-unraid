@@ -525,6 +525,10 @@ class GpuCard {
     const mode = { curve: 'curve', manual: 'fixed', auto: 'driver default', unmanaged: 'not managed here' }[d.settings.fan.mode];
     t.fan.sub.textContent = !this.stat.nfans ? 'no controllable fans reported'
       : (fans.length > 1 ? fans.map((v, i) => `fan ${i + 1} ${v}%`).join(' · ') + ' · ' : '') + mode;
+    // A fanless card (passive, or SoC-cooled like GB10) gets no Fan tile, as it gets no fan editor or
+    // fan chart: the "Not offered" line already says so. It also keeps a GB10, which adds a SoC tile,
+    // at the eight tiles of a discrete card, so its tiles do not spill onto a second row.
+    t.fan.root.hidden = !this.stat.nfans;
     const cap = lv.power_limit_w;
     t.power.value.replaceChildren(n0(lv.power_w), el('small', {}, ' W'));
     this.meter(t.power.extra, lv.power_w, cap);

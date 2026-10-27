@@ -302,13 +302,17 @@ def main():
                   v.querySelector('.unsupported').textContent, v.querySelector('.banner').textContent,
                   v.querySelector('.budget').hidden, document.getElementById('hist-h').textContent,
                   document.querySelectorAll('.chart:not([hidden])').length,
-                  [...v.querySelectorAll('.tile:not([hidden])')].map(x => x.textContent).filter(x => x.startsWith('SoC'))];""")
+                  [...v.querySelectorAll('.tile:not([hidden])')].map(x => x.textContent).filter(x => x.startsWith('SoC')),
+                  [...v.querySelectorAll('.tile:not([hidden]) .label')].map(x => x.textContent),
+                  new Set([...v.querySelectorAll('.tile:not([hidden])')].map(x => x.offsetTop)).size];""")
         check(r[:5] == ["#host=gb10", "gb10", "GB10", "System memory (shared)", 0],
               f"GB10 tab: unified memory, no power/fan/clock controls ({r[:5]})")
         check("power limit, fan control, clock cap" in r[5] and "Monitor-only, and that is all Spark 1 needs" in r[6] and r[7] is True
               and r[8] == "History · Spark 1", f"GB10 says why, is monitor-only, has no budget panel ({r[5:9]})")
         check(r[9] == 4, f"no empty fan chart for a fanless machine ({r[9]} charts shown)")
         check(len(r[10]) == 1 and "61 °C" in r[10][0], f"GB10: a SoC temperature tile with the hottest thermal zone ({r[10]})")
+        check("Fan" not in r[11] and len(r[11]) == 8 and r[12] == 1,
+              f"GB10: no Fan tile on a fanless card; its 8 tiles fit one row at 1400 px ({r[11]}, {r[12]} row(s))")
         r = browser.js("""
           const v = document.querySelector('.hostview:not([hidden])');
           return [v.querySelector('.gpu header .sub').textContent, v.querySelector('.tile .sub').textContent];""")
@@ -326,6 +330,8 @@ def main():
         check(r == "GeForce RTX 5090" and "550 W in force" in msg, f"a 5090 change applies on its own machine ({r}, {msg})")
         n = browser.js("return document.querySelectorAll('.chart:not([hidden])').length")
         check(n == 5, f"the fan chart comes back on a machine with fans ({n} charts shown)")
+        r = browser.js("return [...document.querySelectorAll('.hostview:not([hidden]) .tile:not([hidden]) .label')].map(x => x.textContent)")
+        check("Fan" in r and "SoC temperature" not in r, f"a card with fans keeps its Fan tile and gets no SoC tile ({r})")
         recs = {}
         for hid in ("ws", "rtx5090"):
             path = os.path.join(tmp, f"rec-{hid}.jsonl")
