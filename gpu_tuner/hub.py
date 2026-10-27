@@ -426,6 +426,14 @@ class Hub:
                              g.get("power_limit_w"), g.get("clock_mhz"), g.get("util")]
                 self.history[hid].append((t, layout, tuple(vals)))
 
+    def seed_history(self, hid, rows):
+        """Pre-fill one host's history with (wall time, uuid layout, flat values) rows, oldest
+        first, before start(). Demo mode only: a real page starts with empty charts."""
+        with self.hlock:
+            for t, layout, vals in rows:
+                layout = self._pos.setdefault(tuple(layout), tuple(layout))
+                self.history[hid].append((t, layout, tuple(vals)))
+
     def history_json(self, hid, window):
         link = self.links[hid]
         with link.lock:

@@ -32,6 +32,7 @@ from .daemon import DEFAULT_SOCKET
 from .nvml import REASONS
 
 DEFAULT_PORT = 8765
+COOKIE = "gpu_tuner"
 NONCE_TTL_S = 60
 NONCE_RE = re.compile(r"^[A-Za-z0-9_-]{32,64}$")
 WEB = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web")
@@ -95,12 +96,17 @@ def redeem_nonce(nonce):
         return False
 
 
-def state_json(h: hub.Hub):
-    return {"version": __version__, "reasons": {k: label for _bit, k, label in REASONS},
-            "windows": list(hub.WINDOWS), **h.state_json()}
+def state_json(h: hub.Hub, demo=False):
+    out = {"version": __version__, "reasons": {k: label for _bit, k, label in REASONS},
+           "windows": list(hub.WINDOWS), **h.state_json()}
+    if demo:
+        out["demo"] = True
+    return out
 
 
-def make_handler(h: hub.Hub, token: str, port: int):
+def make_handler(h: hub.Hub, token: str, port: int, cookie: str = COOKIE, demo: bool = False):
+    """The page's request handler. `cookie` names the session cookie: demo mode uses its own, so
+    signing in to a demo never replaces the real page's cookie (cookies ignore the port)."""
     allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
     origins = {f"http://{x}" for x in allowed_hosts}
 
@@ -137,7 +143,7 @@ def make_handler(h: hub.Hub, token: str, port: int):
                 jar.load(self.headers.get("Cookie", ""))
             except cookies.CookieError:
                 return False
-            got = jar.get("gpu_tuner")
+            got = jar.get(cookie)
             return got is not None and hmac.compare_digest(got.value, token)
 
         def _gate(self):
@@ -155,7 +161,7 @@ def make_handler(h: hub.Hub, token: str, port: int):
                 if redeem_nonce(qs["nonce"][0]):
                     self._send(303, b"", "text/plain", extra=(
                         ("Location", "/"),
-                        ("Set-Cookie", f"gpu_tuner={token}; HttpOnly; SameSite=Strict; Path=/")))
+                        ("Set-Cookie", f"{cookie}={token}; HttpOnly; SameSite=Strict; Path=/")))
                 else:
                     self._send(403, b"That link has expired or was already used. Run: gpu-tuner open\n",
                                "text/plain; charset=utf-8")
@@ -169,7 +175,7 @@ def make_handler(h: hub.Hub, token: str, port: int):
                 with open(os.path.join(WEB, name), "rb") as f:
                     self._send(200, f.read(), ctype)
             elif url.path == "/api/state":
-                self._send(200, state_json(h))
+                self._send(200, state_json(h, demo))
             elif url.path == "/api/history":
                 try:
                     window = int(qs.get("window", ["300"])[0])
@@ -233,6 +239,10 @@ def make_link(host, socket_path):
 
 
 def cmd_serve(args):
+    if args.demo:
+        from . import demo
+        return demo.serve(args.port or demo.DEMO_PORT)
+    args.port = args.port or DEFAULT_PORT
     token = session_token()
     try:
         machines = hosts.load_hosts(args.hosts)
@@ -259,9 +269,18 @@ def cmd_serve(args):
 
 
 def cmd_open(args):
+    if not args.port:
+        if args.demo:
+            from .demo import DEMO_PORT
+            args.port = DEMO_PORT
+        else:
+            args.port = DEFAULT_PORT
     try:
         socket.create_connection(("127.0.0.1", args.port), timeout=1).close()
     except OSError:
+        if args.demo:
+            sys.exit(f"gpu-tuner: nothing is listening on 127.0.0.1:{args.port}. Start the demo with\n"
+                     f"    gpu-tuner serve --demo")
         sys.exit(f"gpu-tuner: nothing is listening on 127.0.0.1:{args.port}. Start it with\n"
                  f"    systemctl --user start gpu-tuner-ui      (after install.sh), or\n"
                  f"    gpu-tuner serve")
@@ -285,7 +304,11 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd", required=True)
     for name, fn in (("serve", cmd_serve), ("open", cmd_open)):
         p = sub.add_parser(name)
-        p.add_argument("--port", type=int, default=DEFAULT_PORT)
+        p.add_argument("--port", type=int, default=None,
+                       help=f"default {DEFAULT_PORT}, or 8766 with --demo")
+        p.add_argument("--demo", action="store_true",
+                       help="three simulated machines, nothing real is read or changed (serve), "
+                            "or sign in to that demo page (open)")
         p.set_defaults(fn=fn)
     sub.choices["serve"].add_argument("--socket", default=DEFAULT_SOCKET,
                                       help="this machine's gpu-tunerd control socket")

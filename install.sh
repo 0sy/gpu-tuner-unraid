@@ -87,7 +87,7 @@ command -v nvidia-smi >/dev/null || die "nvidia-smi not found"
     || die "the system python cannot import pynvml (apt install python3-pynvml); the daemon runs as root with -I and sees no user site-packages"
 for f in gpu-tunerd gpu-tuner gpu_tuner/safety.py gpu_tuner/nvml.py gpu_tuner/daemon.py gpu_tuner/server.py \
          gpu_tuner/node.py gpu_tuner/proto.py gpu_tuner/hosts.py gpu_tuner/hub.py gpu_tuner/cli.py \
-         gpu_tuner/seed.py gpu_tuner/probe.py \
+         gpu_tuner/seed.py gpu_tuner/probe.py gpu_tuner/demo.py \
          gpu-tunerd.service gpu-tuner-ui.service gpu-tuner.desktop icon.svg \
          web/index.html web/app.js web/style.css; do
     [[ -f "$HERE/$f" ]] || die "missing $HERE/$f"

@@ -1,6 +1,6 @@
 """`gpu-tuner <command>`: one entry point, each command importing only what it needs.
 
-  serve | open            the page (server.py)
+  serve | open            the page (server.py); `serve --demo` runs it over simulated machines (demo.py)
   node --stdio | --check  this machine's GPUs, for a page here or elsewhere (node.py)
   probe                   read-only NVML capability report, as JSON (probe.py)
   hosts --check           connect to every machine in hosts.json once and say what's wrong
@@ -126,6 +126,9 @@ def main(argv=None):
     cmd = argv[0] if argv else ""
     if cmd == "node":
         from .node import main as node_main
+        return node_main(argv[1:])
+    if cmd == "demo-node":                  # started by `serve --demo`, one per simulated machine
+        from .demo import node_main
         return node_main(argv[1:])
     if cmd == "probe":
         from .probe import main as probe_main

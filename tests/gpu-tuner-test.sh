@@ -8,6 +8,8 @@ status=0
 python3 "$HERE/gpu-tuner-test.py" || status=$?
 # Across machines: protocol, hosts.json, node, links (fake node subprocesses), routing. ~20 s.
 python3 "$HERE/gpu-tuner-fleet-test.py" || status=$?
+# Demo mode: simulated machines through the real page, hub, node and daemon code. ~15 s.
+python3 "$HERE/gpu-tuner-demo-test.py" || status=$?
 
 # The install script's dry run must produce a plan without touching anything, in every mode. It
 # needs nvidia-smi; skip (not fail) on a box without one.

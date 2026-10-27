@@ -989,8 +989,12 @@ function render() {
   $('#meta').textContent = (multi() ? `${h.label} · ` : '') + `driver ${node.driver || '–'} · gpu-tuner ${S.st.version}`;
   $('#hist-h').textContent = multi() ? `History · ${h.label}` : 'History';
   const g = $('#banner'), warns = S.st.warnings || [];
-  g.hidden = !warns.length;
-  g.replaceChildren(...warns.map(w => el('div', {}, el('strong', {}, 'Configuration'), w)));
+  const notes = warns.map(w => el('div', {}, el('strong', {}, 'Configuration'), w));
+  if (S.st.demo) notes.unshift(el('div', {}, el('strong', {}, 'Demo mode'),
+    'Three simulated machines. Changes go through the same safety checks as on real hardware, then ' +
+    'land on simulated cards: nothing on this page reads or changes a real GPU.'));
+  g.hidden = !notes.length;
+  g.replaceChildren(...notes);
   renderFleet();
   renderTabs();
   selView().render();
@@ -1006,6 +1010,7 @@ function setConn() {
     kind = up === n ? 'good' : up ? 'warning' : 'critical';
     text = `Live · ${up} of ${n} machines`;
   }
+  if (S.st && S.st.demo) text = 'Demo · ' + text;
   c.className = 'chip ' + kind; c.textContent = text;
 }
 

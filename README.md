@@ -28,6 +28,39 @@ shown for it, with a line saying so.
 Where they exist it replaces `gpu-fan-curve.service` and `gpu-power-limit.service` (the original
 lab's services: disabled by the installer, kept on disk, restored by `--uninstall`).
 
+<table>
+<tr>
+<td width="68%"><img src="docs/images/demo-desktop.png" alt="The page on a desktop: the machines table, the workstation's power budget and its two cards with live readings and power presets"></td>
+<td><img src="docs/images/demo-phone.png" alt="The same page at phone width"></td>
+</tr>
+</table>
+
+![Six hours of temperature, fan, power, clock and utilization history for two cards](docs/images/demo-history.png)
+
+*These screenshots come from demo mode: three simulated machines, no real GPU involved.*
+
+### Try it without a GPU: demo mode
+
+```bash
+git clone https://github.com/willboyden/gpu-tuner && cd gpu-tuner
+./gpu-tuner serve --demo      # the page on http://127.0.0.1:8766/
+./gpu-tuner open --demo       # in a second terminal: signs your browser in
+```
+
+Demo mode serves the real page over three made-up machines: a workstation with two RTX PRO 6000
+cards (control daemon, power budget, fan curves), a render box with an RTX 5090 (a lowered power
+limit and a clock cap) and a GB10 edge box (monitor-only, unified memory). Their readings move like
+training, inference and rendering jobs, and the charts start with six hours of history. Every change
+you make goes through the same daemon checks as on real hardware (a copy of the daemon logic runs
+in-process for each simulated machine) and then lands on a simulated card.
+
+It needs only Python 3: no NVIDIA driver, no `pynvml`, no root and no install. It never loads NVML,
+never talks to a real `gpu-tunerd` or its socket, never runs ssh and opens no connection beyond its own
+`127.0.0.1` port; its state lives in a private temporary directory that is removed when it stops. It
+uses its own port (8766) and its own session cookie, so it can run beside a real page without
+signing you out of it. `gpu-tuner open` keeps its single-use sign-in links in `~/.config/gpu-tuner`, as
+for the real page.
+
 ## Install
 
 ### Requirements
@@ -293,7 +326,8 @@ gpu-tunerd (root, systemd)  <--unix socket, SO_PEERCRED-->  gpu-tuner node (you)
 | `gpu_tuner/hosts.py` | `hosts.json`: which machines, the exact ssh command for each, the restricted-key line. |
 | `gpu_tuner/hub.py` | One link per machine (reconnect, backoff, heartbeat, one change in flight), and the 6 h history on the page's clock. |
 | `gpu_tuner/server.py` | The page: `/api/state`, `/api/history?host=`, `/api/apply` (routed by machine, never by GPU alone), sign-in. |
-| `gpu_tuner/cli.py` | `gpu-tuner serve \| open \| node \| probe \| hosts`. |
+| `gpu_tuner/cli.py` | `gpu-tuner serve \| open \| node \| probe \| hosts` (and `demo-node`, which `serve --demo` starts). |
+| `gpu_tuner/demo.py` | Demo mode: a pynvml-shaped simulation of three machines, run through the real node, daemon and page code. |
 | `gpu_tuner/seed.py` · `probe.py` | Fresh-install seed from `nvidia-smi` · read-only NVML capability report. |
 | `web/` | The page. No framework, no CDN, no inline script/style (CSP), no `innerHTML`. |
 | `gpu-tunerd.service` | Root unit: `Type=notify`, watchdog, hardened, `ExecStopPost --restore-fans`. |
@@ -325,6 +359,23 @@ page come from `/proc/<pid>/comm`, never `cmdline` (command lines here carry API
 a fixed speed until the next write, so a curve has to be re-evaluated as temperature moves.
 
 ## Security review
+
+### Demo mode (1.2.0, 2026-10-26)
+
+- **Nothing real is read or changed.** Every demo process blocks the `pynvml` module before
+  anything else runs (a test checks it cannot be imported there); each simulated machine's daemon
+  is an in-process copy of the daemon logic on a socket in a private `0700` temporary directory,
+  never `/run/gpu-tuner/control.sock`; no ssh is run and no connection is opened beyond the page's
+  own loopback port.
+- **Nothing from the machine running it reaches the page.** Host labels, the hostname each node
+  reports and the process names are made up, and the demo node never reads `/proc` for them.
+- **The same page security as the real one**: loopback bind, `Host` check, `Origin` check on
+  writes, an `HttpOnly; SameSite=Strict` cookie traded for a single-use nonce. It uses its own
+  cookie name and an in-memory session secret, because cookies ignore the port: with the real
+  page's cookie name, signing in to a demo on 8766 would sign you out of the real page on 8765.
+- `Ctrl-C` and `SIGTERM` remove the temporary directory; after a `SIGKILL` it stays in `$TMPDIR`
+  (a few small state files and sockets).
+- This change has not had an independent review.
 
 ### 1.1.2 (2026-10-04)
 
@@ -481,6 +532,14 @@ and logged exactly as it would be; nothing is written to the cards.
   `tests/fake_node.py` subprocesses (reconnect, stale, timeout, busy, down, incompatible version,
   malformed hello, unannounced GPUs, fatal, shell noise, unrestricted key, ssh failure
   messages), routing (a change reaches only the named machine), history gaps, and the HTTP API.
+- `tests/gpu-tuner-demo-test.py`, 15 tests, ~2 s: demo mode. The simulation (cards load through
+  the real NVML wrapper, the same second gives the same reading in two processes, six hours of
+  plausible history that joins the live readings, writes land on the simulated card), that nothing
+  real is used (no `/proc` reads, made-up hostnames and process names, no ssh or real daemon socket
+  in a demo node's command line, `pynvml` cannot be imported in a demo process), and the page end
+  to end under a scratch `HOME`: its own cookie, the real page's request checks, three machines up,
+  a change applied through the daemon's checks and read back, a monitor-only machine refusing, and
+  `SIGTERM` removing the temporary directory.
 - The installer's dry run in every mode, and the page's CSP invariants.
 
 `bash tests/live-ui-test.sh` (opt-in, ~70 s, needs a GPU and Firefox, **no root**) —
@@ -495,7 +554,9 @@ view (no PCIe riser false alarm, headroom against its lowest threshold), that
 a change on the 5090's tab reaches only that machine's daemon, and the unreachable machine's
 explanation. Nothing is written to the cards.
 
-All three pass as of 2026-10-04 on driver 595.91 (the live one: 42/42).
+All three pass as of 2026-10-04 on driver 595.91 (the live one: 42/42). The demo suite was added and passes as of
+2026-10-26. The opt-in live suite was not re-run for 1.2.0; the page's own change is the demo notice,
+which only appears in demo mode.
 
 Also run against real machines, set up with the "several machines at once" loop above: a page on the
 RTX PRO 6000 workstation managing an RTX 5090 box (x86_64, driver 595.91.07, `--no-ui`: power
