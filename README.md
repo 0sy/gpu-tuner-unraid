@@ -2,9 +2,13 @@
 
 Unraid packaging of [willboyden/gpu-tuner](https://github.com/willboyden/gpu-tuner), maintained in [0sy/gpu-tuner-unraid](https://github.com/0sy/gpu-tuner-unraid).
 
-**Beta release:** `ghcr.io/0sy/gpu-tuner-unraid:1.3.1-unraid.1-beta.1` and `:latest` are publicly available. Anonymous image pulls and installed-image login/reset checks passed. Community Applications catalog submission and review remain pending.
+**Beta release:** `ghcr.io/0sy/gpu-tuner-unraid:1.3.1-unraid.1-beta.1` and `:latest` are publicly available. Anonymous image pulls and installed-image login/reset checks passed. Submitted to Community Applications; catalog approval is pending.
 
-Start with the [Unraid installation and release guide](docs/unraid.md). The Linux/systemd instructions below are upstream documentation and are not the Unraid installation procedure.
+Start with the [Unraid installation and operation guide](docs/unraid.md). The Linux/systemd instructions below are upstream documentation and are not the Unraid installation procedure.
+
+## Acknowledgments
+
+GPU Tuner was created by [willboyden](https://github.com/willboyden). The Unraid adaptation is maintained by [0sy](https://github.com/0sy), with assistance from [OpenAI Codex](https://openai.com/codex/) on packaging, WebUI authentication, testing and documentation.
 
 ---
 
