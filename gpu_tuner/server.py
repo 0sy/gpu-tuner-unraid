@@ -108,6 +108,11 @@ def make_handler(h: hub.Hub, token: str, port: int, cookie: str = COOKIE, demo: 
     """The page's request handler. `cookie` names the session cookie: demo mode uses its own, so
     signing in to a demo never replaces the real page's cookie (cookies ignore the port)."""
     allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
+    lan_ip = os.environ.get("GPU_TUNER_LAN_IP", "").strip()
+    if lan_ip:
+        import ipaddress
+        lan_ip = str(ipaddress.IPv4Address(lan_ip))
+        allowed_hosts.add(f"{lan_ip}:{port}")
     origins = {f"http://{x}" for x in allowed_hosts}
 
     class Handler(BaseHTTPRequestHandler):
@@ -251,7 +256,7 @@ def cmd_serve(args):
     h = hub.Hub(machines, lambda m: make_link(m, args.socket))
     h.start()
     try:
-        httpd = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(h, token, args.port))
+        httpd = ThreadingHTTPServer((os.environ.get("GPU_TUNER_BIND", "127.0.0.1"), args.port), make_handler(h, token, args.port))
     except OSError as e:
         h.stop()
         sys.exit(f"gpu-tuner: cannot listen on 127.0.0.1:{args.port}: {e}")
