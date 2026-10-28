@@ -8,6 +8,7 @@ import sys
 import time
 
 ROOT = "/opt/gpu-tuner"
+sys.path.insert(0, ROOT)
 DAEMON = [
     sys.executable, f"{ROOT}/gpu-tunerd",
     "--config", "/data/config/config.json",
@@ -73,6 +74,9 @@ def configure_webui():
 
 def initialize_data():
     """Create persistent directories without replacing user configuration."""
+    # The unprivileged UI must traverse the bind-mount root, even if the
+    # host created it with mode 0700. Child directories retain private modes.
+    os.chmod("/data", 0o711)
     for name in ("config", "state", "ui"):
         path = f"/data/{name}"
         os.makedirs(path, exist_ok=True)
@@ -96,6 +100,85 @@ def initialize_data():
 
     os.chown("/data/ui", 10001, 10001)
     os.chmod("/data/ui", 0o700)
+
+
+
+def initialize_password():
+    """Create the initial WebUI password hash without replacing it on restart."""
+    from gpu_tuner.password_auth import hash_password, valid_password_hash
+
+    parent = "/data/ui/.config"
+    os.makedirs(parent, mode=0o700, exist_ok=True)
+    os.chown(parent, 10001, 10001)
+    os.chmod(parent, 0o700)
+    directory = os.path.join(parent, "gpu-tuner")
+    os.makedirs(directory, mode=0o700, exist_ok=True)
+    os.chown(directory, 10001, 10001)
+    os.chmod(directory, 0o700)
+
+    path = os.path.join(directory, "password.hash")
+
+    if os.path.lexists(path):
+        if not os.path.isfile(path) or os.path.islink(path):
+            raise RuntimeError("WebUI password file is not a regular file")
+        with open(path, encoding="ascii") as f:
+            stored = f.read().strip()
+        if not valid_password_hash(stored):
+            raise RuntimeError("WebUI password hash is invalid")
+        os.chown(path, 10001, 10001)
+        os.chmod(path, 0o600)
+        return
+
+    password = os.environ.get("GPU_TUNER_INITIAL_PASSWORD")
+    if not password:
+        raise RuntimeError(
+            "Set GPU_TUNER_INITIAL_PASSWORD for first-run WebUI setup"
+        )
+
+    stored = hash_password(password)
+
+    fd = os.open(
+        path,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+        0o600,
+    )
+    with os.fdopen(fd, "w", encoding="ascii") as f:
+        f.write(stored + "\n")
+
+    os.chown(path, 10001, 10001)
+    os.chmod(path, 0o600)
+
+def reset_password():
+    """Reset WebUI credentials from an administrator's interactive console."""
+    import getpass
+    import tempfile
+    from gpu_tuner.password_auth import hash_password
+
+    if os.geteuid() != 0:
+        raise RuntimeError("Run password reset as root inside the container")
+    if not sys.stdin.isatty():
+        raise RuntimeError("Password reset requires an interactive terminal (docker exec -it)")
+    password = getpass.getpass("New WebUI password: ")
+    stored = hash_password(password)
+    if password != getpass.getpass("Confirm new password: "):
+        raise ValueError("Passwords do not match; password unchanged")
+
+    directory = "/data/ui/.config/gpu-tuner"
+    if not os.path.isdir(directory) or os.path.islink(directory):
+        raise RuntimeError("WebUI credential directory is unavailable")
+    fd, temporary = tempfile.mkstemp(prefix=".password-", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="ascii") as f:
+            os.fchmod(f.fileno(), 0o600)
+            os.fchown(f.fileno(), 10001, 10001)
+            f.write(stored + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temporary, os.path.join(directory, "password.hash"))
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+    print("WebUI password reset. Sign in with the new password; no restart needed.", flush=True)
 
 
 def validate_existing_state():
@@ -182,6 +265,12 @@ def validate_existing_state():
 
 def main():
     initialize_data()
+    try:
+        initialize_password()
+    finally:
+        # Child processes must never inherit the initial password.
+        # Docker's saved container configuration may still contain it.
+        os.environ.pop("GPU_TUNER_INITIAL_PASSWORD", None)
     validate_existing_state()
     configure_webui()
     os.makedirs("/run/gpu-tuner", mode=0o711, exist_ok=True)
@@ -239,7 +328,12 @@ def main():
 
 if __name__ == "__main__":
     try:
-        main()
+        if sys.argv[1:] == ["--reset-password"]:
+            reset_password()
+        elif sys.argv[1:]:
+            raise ValueError("Usage: gpu-tuner-entrypoint [--reset-password]")
+        else:
+            main()
     except Exception as exc:
         print(f"Supervisor: {exc}", file=sys.stderr, flush=True)
         sys.exit(1)

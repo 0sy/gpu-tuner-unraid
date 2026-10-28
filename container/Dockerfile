@@ -1,5 +1,12 @@
 FROM python:3.12-slim
 
+LABEL org.opencontainers.image.title="GPU Tuner for Unraid" \
+      org.opencontainers.image.description="NVIDIA GPU power, fan and clock management with a WebUI for Unraid" \
+      org.opencontainers.image.source="https://github.com/0sy/gpu-tuner-unraid" \
+      org.opencontainers.image.url="https://github.com/0sy/gpu-tuner-unraid" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.vendor="0sy"
+
 RUN pip install --no-cache-dir \
     --root-user-action=ignore \
     nvidia-ml-py
