@@ -104,6 +104,56 @@ def state_json(h: hub.Hub, demo=False):
     return out
 
 
+
+def public_url_host(value):
+    """Return the exact HTTP Host for a configured LAN URL."""
+    from urllib.parse import urlsplit
+    import ipaddress
+
+    if not value:
+        return None
+
+    url = urlsplit(value)
+
+    if (
+        url.scheme != "http"
+        or not url.netloc
+        or url.username is not None
+        or url.password is not None
+        or url.path not in ("", "/")
+        or url.query
+        or url.fragment
+    ):
+        raise ValueError(
+            "GPU_TUNER_PUBLIC_URL must be an HTTP URL without credentials, "
+            "a path, query or fragment"
+        )
+
+    try:
+        hostname = url.hostname
+        port = url.port
+        if hostname is None or port is None:
+            raise ValueError("explicit port required")
+
+        # Require a literal IPv4 address or localhost. Do not allow
+        # arbitrary DNS names in the Host allowlist.
+        if hostname != "localhost":
+            hostname = str(ipaddress.IPv4Address(hostname))
+
+        expected = f"{hostname}:{port}"
+        if url.netloc != expected:
+            raise ValueError("noncanonical host or port")
+
+        if not 1 <= port <= 65535:
+            raise ValueError("invalid port")
+
+    except ValueError as exc:
+        raise ValueError(
+            f"Invalid GPU_TUNER_PUBLIC_URL {value!r}: {exc}"
+        ) from exc
+
+    return expected
+
 def make_handler(h: hub.Hub, token: str, port: int, cookie: str = COOKIE, demo: bool = False):
     """The page's request handler. `cookie` names the session cookie: demo mode uses its own, so
     signing in to a demo never replaces the real page's cookie (cookies ignore the port)."""
@@ -113,6 +163,12 @@ def make_handler(h: hub.Hub, token: str, port: int, cookie: str = COOKIE, demo: 
         import ipaddress
         lan_ip = str(ipaddress.IPv4Address(lan_ip))
         allowed_hosts.add(f"{lan_ip}:{port}")
+    public_host = public_url_host(
+        os.environ.get("GPU_TUNER_PUBLIC_URL", "").strip()
+    )
+    if public_host:
+        allowed_hosts.add(public_host)
+
     origins = {f"http://{x}" for x in allowed_hosts}
 
     class Handler(BaseHTTPRequestHandler):
