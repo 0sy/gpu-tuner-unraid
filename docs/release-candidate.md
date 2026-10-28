@@ -1,4 +1,4 @@
-# Unraid release candidate
+# Unraid beta release
 
 First beta image tag: `1.3.1-unraid.1-beta.1`, based on upstream GPU Tuner 1.3.1.
 
@@ -14,13 +14,15 @@ The fork adds Unraid Docker packaging, persistent appdata, a password login page
 - `.github/workflows/publish.yml`: manually dispatched build/test/push pipeline. No automatic publishing on commit or tag creation.
 - `docs/unraid.md`: installation, credential recovery, remembered-login behavior and old-layout migration.
 
-## Remaining release gates
+## Publication status
 
-1. Add Container deployment completed using `gpu-tuner-ca-test`, separate appdata and port 18766; user-provided logs confirmed all three GPUs and the WebUI started. Manual WebUI authentication, reset, theme, remembered login and container-menu access checks passed.
-2. Final changes reviewed; user authorized commit/push and image publication on 2026-10-28. Destination: `0sy/gpu-tuner-unraid` only.
-3. Dispatch the publish workflow with the approved version. Make the GHCR package public and verify an unauthenticated pull.
-4. Run `python3 tests/check_unraid_assets.py --public` successfully (also enforced by the publish workflow), then run the Community Applications submission portal Validate and Scan checks.
-5. Submit the beta listing for review after scan findings are resolved.
+Published beta `1.3.1-unraid.1-beta.1` and `latest` from commit `a9ba5116ddc49ee22e3d7dd9ebc7468684e4abbe`. CI and publication succeeded. Both tags were pulled anonymously and resolve to `sha256:d636c8ed68ca7316cdcd7cb80b3ca9b9e3582685767779067579bc84b81a128a`. The downloaded image passed first-run/login/reset checks, and public PNG/template/profile verification passed.
+
+## Remaining distribution steps
+
+1. Push the documentation update and local Git release tag.
+2. Submit `https://github.com/0sy/gpu-tuner-unraid` through the Community Applications portal.
+3. Run portal Validate and Scan, resolve any findings, and submit the beta listing for review.
 
 The local template is installed at `/boot/config/plugins/dockerMan/templates-user/my-gpu-tuner-ca-test.xml`. Its mandatory initial-password field is intentionally empty. Set it in the Unraid form before Apply. After successful login, remove the variable entirely in Advanced View and Apply again; an empty required field cannot be saved. The preview `gpu-tuner-install-test` and older development controller remain stopped; the user-installed `gpu-tuner-ca-test` is the active controller.
 

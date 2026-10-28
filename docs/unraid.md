@@ -1,6 +1,6 @@
 # GPU Tuner on Unraid
 
-This fork packages the upstream NVIDIA GPU controller with a password-authenticated LAN WebUI. Unraid functionality has been exercised in the development deployment. The distributable installation flow is still being validated; it is not published in Community Applications yet.
+This fork packages the upstream NVIDIA GPU controller with a password-authenticated LAN WebUI. Unraid functionality has been exercised in the development deployment. The first beta image is public on GHCR; anonymous pulls and installed-image checks passed. Community Applications catalog submission and review remain pending.
 
 ## Requirements and template settings
 
@@ -30,7 +30,7 @@ Bridge networking has passed the live Docker installation checks. The existing d
 7. For an upgrade test, back up appdata while stopped, then recreate with the candidate image and the same appdata mapping. Check login, persisted controls and telemetry. Verify Remember me stays signed in after recreation; ordinary sessions require signing in again.
 8. Stop and remove the test container. Keep or explicitly delete its dedicated test appdata. Restart the development container if desired. Removing a container should not erase the persistent appdata.
 
-Do not apply the supplied production template unchanged before publication: its GHCR image and raw template/icon URLs refer to the intended public release and may not exist yet.
+The production template now references a public GHCR image, PNG icon and raw template URL. Set your own WebUI URL, appdata path and initial password before installing.
 
 ## Migrate the older development layout
 
@@ -153,6 +153,15 @@ Local host: **Unraid 7.3.4** (user-reported), NVIDIA driver **580.196.07**, thre
 - Final review corrected login validation to reject actual NUL characters while accepting a valid password containing a literal backslash escape; a regression covers both cases.
 - The local Add Container template is installed at `/boot/config/plugins/dockerMan/templates-user/my-gpu-tuner-ca-test.xml`, using candidate image `gpu-tuner-unraid:packaging-test`, separate appdata `/mnt/user/appdata/gpu-tuner-ca-test` and port 18766. The installed Unraid parser accepted it. The user subsequently submitted the form and confirmed startup through container logs.
 - No image or repository changes were published.
+
+## Published beta verification (2026-10-28)
+
+- Image tags: `ghcr.io/0sy/gpu-tuner-unraid:1.3.1-unraid.1-beta.1` and `:latest`.
+- Both were pulled using an empty Docker credentials configuration.
+- Both resolve to `sha256:d636c8ed68ca7316cdcd7cb80b3ca9b9e3582685767779067579bc84b81a128a`.
+- Published image version/revision labels match beta `1.3.1-unraid.1-beta.1` and commit `a9ba5116ddc49ee22e3d7dd9ebc7468684e4abbe`.
+- The anonymously downloaded image passed first-run/login/password-reset checks without GPU access. Anonymous icon/template/profile checks passed too.
+- CI and the publishing workflow completed successfully. Community Applications portal validation, scanning and submission remain pending.
 
 ## Manual WebUI validation (2026-10-28)
 
