@@ -1,6 +1,6 @@
 """gpu-tuner demo mode: the real page, hub, node and daemon code over simulated GPUs.
 
-  gpu-tuner serve --demo [--port 8766]     then: gpu-tuner open --demo
+   gpu-tuner serve --demo [--port 8766]     then: gpu-tuner open --demo
 
 Three made-up machines (a two-card workstation, a one-card render box and a monitor-only GB10
 edge box) with readings that move like real workloads and six hours of history from the moment
@@ -42,7 +42,7 @@ WARMUP_S = 900                     # temperatures settle before the first readin
 ALPHA = 1 - math.exp(-1 / 40)      # one-second step of a ~40 s thermal time constant
 NOT_SUPPORTED = 3
 
-# ── the made-up machines and cards ───────────────────────────────────────────────────────────
+# ── the made-up machines and cards ────────────────────────────────────────────────────
 PRO_THRESHOLDS = {0: 98, 1: 95, 3: 92}         # shutdown, slowdown, GPU max (NVML constant ids)
 
 CARDS = {
@@ -119,7 +119,14 @@ def workload(spec, salt, t):
     """(busy, load 0..1) of this card at second t."""
     slot_len, p_busy, busy_rng, idle_rng, jitter, burst = PATTERNS[spec["pattern"]]
     slot = t // slot_len
-    busy = _unit(salt ^ 0xA5A5, slot) < p_busy
+    # Keep the demo plausible while guaranteeing a few idle windows in each six-hour history.
+    forced_idle = {
+        "training": slot % 5 == 0,
+        "inference": slot % 9 == 0,
+        "render": slot % 7 == 0,
+        "edge": slot % 8 == 0,
+    }.get(spec["pattern"], False)
+    busy = (not forced_idle) and (_unit(salt ^ 0xA5A5, slot) < p_busy)
     lo, hi = busy_rng if busy else idle_rng
     level = lo + (hi - lo) * _unit(salt ^ 0x5A5A, slot)
     if busy and burst:          # requests come and go within the slot
@@ -443,7 +450,7 @@ class DemoLib:
             self.sims[h].refresh()
 
 
-# ── history for the charts ───────────────────────────────────────────────────────────────────
+# ── history for the charts ──────────────────────────────────────────────────────
 def history_rows(host_id, now_s, seconds=HISTORY_S):
     """Hub history rows (wall time, uuid layout, flat values) for the `seconds` before now_s,
     from the same simulation the live demo node runs, so the charts join up."""
@@ -462,7 +469,7 @@ def history_rows(host_id, now_s, seconds=HISTORY_S):
     return rows
 
 
-# ── the demo node (`gpu-tuner demo-node`) ────────────────────────────────────────────────────
+# ── the demo node (`gpu-tuner demo-node`) ─────────────────────────────────────────────────
 def _block_nvml():
     sys.modules["pynvml"] = None          # any `import pynvml` in a demo process now fails loudly
 
@@ -571,7 +578,7 @@ def node_argv(host_id, state_dir):
     return [sys.executable, hosts.ENTRY, "demo-node", "--host", host_id, "--state-dir", state_dir]
 
 
-# ── the demo page (`gpu-tuner serve --demo`) ─────────────────────────────────────────────────
+# ── the demo page (`gpu-tuner serve --demo`) ────────────────────────────────────────────────
 def build_hub(state_dir, now_s=None):
     from . import hub
     h = hub.Hub(hub_hosts(), lambda m: hub.NodeLink(m, node_argv(m["id"], state_dir)))
