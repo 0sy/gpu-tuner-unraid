@@ -16,7 +16,7 @@ Some GPU models support monitoring without exposing fan or clock controls. Use t
 1. In **Apps**, search for **GPU Tuner** and select Install. If the listing is not yet available, use the manual template instructions below.
 2. Set **Appdata** to a dedicated directory, mapped to `/data`.
 3. Choose the host **WebUI Port**.
-4. Enter **WebUI URL** using your Unraid server's IPv4 address and chosen host port, for example `http://192.168.1.10:8765`. Include the explicit port and no path. Both the value and default are intentionally blank in the distributed template.
+4. Enter **WebUI URL** using the address opened in your browser, for example `http://192.168.1.10:8765` for direct access or `https://gpu-tuner.example.com` behind a reverse proxy. Default ports may be omitted; no path beyond `/` is supported. Both the value and default are intentionally blank in the distributed template.
 5. Enter an **Initial WebUI Password** of 12–1024 characters. This masked field is mandatory; there is no default password.
 6. Retain the GPU parameters and 45-second stop timeout, then select **Apply**.
 7. Open **WebUI** from the container's context menu and sign in.
@@ -40,11 +40,28 @@ Open **Docker → Add Container**, select the GPU Tuner template, and complete t
 
 ## Networking
 
-The default template uses **bridge** networking and maps your chosen host port to container port 8765. If you change the host port, update **WebUI URL** to match.
+The default template uses **bridge** networking and maps your chosen host port to container port 8765. For direct access, if you change the host port, update **WebUI URL** to match. Behind a reverse proxy, update its upstream port.
 
 For a custom network, assign an unused container IPv4 address in Unraid and set WebUI URL to that address with port 8765. Host networking is unsupported: startup expects one non-loopback container IPv4 address.
 
-The WebUI URL must match the address used in your browser. Arbitrary DNS names, HTTPS URLs and paths are not accepted by the current URL setting.
+The WebUI URL must match the address used in your browser.
+HTTP and HTTPS URLs with IP addresses or DNS names are supported.
+Credentials, paths beyond `/`, queries and fragments are rejected.
+
+### Reverse proxy (Nginx Proxy Manager)
+
+Set **WebUI URL** (`GPU_TUNER_PUBLIC_URL`) to the public browser URL,
+for example `https://gpu-tuner.example.com`. Configure NPM to terminate
+TLS and forward HTTP to the Unraid host's mapped WebUI port.
+Preserve the browser's Host header and Origin header.
+The container continues serving HTTP on port 8765; it needs no certificate.
+
+Set Unraid's separate WebUI launch shortcut to the same public URL.
+The environment variable controls application validation; the shortcut
+only controls the address opened by Unraid.
+
+Host and Origin checks remain enabled. HTTPS public-host cookies receive
+the Secure flag. Forwarded headers do not expand the allowed hosts or origins.
 
 ## Sign-in and Remember me
 
@@ -105,7 +122,7 @@ The template's 45-second stop timeout allows supervised shutdown and automatic f
 
 ## Troubleshooting and support
 
-- **HTTP 421 or 403:** ensure WebUI URL matches the browser address, including the port. Use an HTTP URL with a literal IPv4 address.
+- **HTTP 421 or 403:** ensure WebUI URL matches the browser scheme, hostname and nondefault port. For reverse proxies, preserve Host and Origin.
 - **Container exits during first start:** check the logs and ensure the initial password contains 12–1024 characters.
 - **Password authentication unavailable:** check the logs and use password recovery if the stored hash is missing or invalid.
 - **GPU not detected:** check the NVIDIA Driver plugin, `nvidia-smi`, and the template's `--gpus all` parameter. Ensure the GPU is available to Docker.
