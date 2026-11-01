@@ -114,9 +114,7 @@ def state_json(h: hub.Hub, demo=False):
 
 def public_url_host(value):
     """Return the canonical Host for a configured HTTP or HTTPS URL."""
-    from urllib.parse import urlsplit
     import ipaddress
-    import re
 
     if not value:
         return None
@@ -188,7 +186,6 @@ def make_handler(h: hub.Hub, token: str, port: int, cookie: str = COOKIE, demo: 
 
     origins = {f"http://{x}" for x in allowed_hosts}
     if public_host:
-        from urllib.parse import urlsplit
         allowed_hosts.add(public_host)
         origins.add(f"{urlsplit(public_url).scheme}://{public_host}")
     login_limiter = LoginLimiter()
@@ -244,7 +241,6 @@ def make_handler(h: hub.Hub, token: str, port: int, cookie: str = COOKIE, demo: 
             return True
 
         def _cookie_security(self):
-            from urllib.parse import urlsplit
             if (
                 urlsplit(public_url).scheme == "https"
                 and self.headers.get("Host") == public_host
