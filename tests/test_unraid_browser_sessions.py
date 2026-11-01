@@ -37,9 +37,10 @@ class BrowserSessionsTests(unittest.TestCase):
             second = sessions.create()
             third = sessions.create()
 
-        self.assertFalse(sessions.valid(first))
-        self.assertTrue(sessions.valid(second))
-        self.assertTrue(sessions.valid(third))
+        with patch("gpu_tuner.browser_sessions.time.monotonic", return_value=103):
+            self.assertFalse(sessions.valid(first))
+            self.assertTrue(sessions.valid(second))
+            self.assertTrue(sessions.valid(third))
 
     def test_revocation_is_individual(self):
         sessions = BrowserSessions()

@@ -113,53 +113,66 @@ def state_json(h: hub.Hub, demo=False):
 
 
 def public_url_host(value):
-    """Return the exact HTTP Host for a configured LAN URL."""
+    """Return the canonical Host for a configured HTTP or HTTPS URL."""
     from urllib.parse import urlsplit
     import ipaddress
+    import re
 
     if not value:
         return None
 
-    url = urlsplit(value)
-
-    if (
-        url.scheme != "http"
-        or not url.netloc
-        or url.username is not None
-        or url.password is not None
-        or url.path not in ("", "/")
-        or url.query
-        or url.fragment
-    ):
-        raise ValueError(
-            "GPU_TUNER_PUBLIC_URL must be an HTTP URL without credentials, "
-            "a path, query or fragment"
-        )
-
     try:
+        if any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in value):
+            raise ValueError("whitespace and control characters are not allowed")
+
+        url = urlsplit(value)
+        if (
+            url.scheme not in ("http", "https")
+            or not url.netloc
+            or url.username is not None
+            or url.password is not None
+            or url.path not in ("", "/")
+            or "?" in value
+            or "#" in value
+        ):
+            raise ValueError(
+                "expected an HTTP or HTTPS URL without credentials, "
+                "a path, query or fragment"
+            )
+
         hostname = url.hostname
         port = url.port
-        if hostname is None or port is None:
-            raise ValueError("explicit port required")
-
-        # Require a literal IPv4 address or localhost. Do not allow
-        # arbitrary DNS names in the Host allowlist.
-        if hostname != "localhost":
-            hostname = str(ipaddress.IPv4Address(hostname))
-
-        expected = f"{hostname}:{port}"
-        if url.netloc != expected:
-            raise ValueError("noncanonical host or port")
-
-        if not 1 <= port <= 65535:
+        if not hostname:
+            raise ValueError("hostname required")
+        if port is not None and not 1 <= port <= 65535:
             raise ValueError("invalid port")
 
-    except ValueError as exc:
-        raise ValueError(
-            f"Invalid GPU_TUNER_PUBLIC_URL {value!r}: {exc}"
-        ) from exc
+        try:
+            address = ipaddress.ip_address(hostname)
+        except ValueError:
+            if len(hostname) > 253 or not all(
+                re.fullmatch(
+                    r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label
+                )
+                for label in hostname.split(".")
+            ):
+                raise ValueError("invalid hostname")
+            host = hostname
+        else:
+            host = f"[{address}]" if address.version == 6 else str(address)
 
-    return expected
+        # Reject ambiguous authorities, empty ports and noncanonical ports.
+        authority = host if port is None else f"{host}:{port}"
+        if url.netloc.lower() != authority:
+            raise ValueError("noncanonical host or port")
+
+        # Browsers omit the scheme's default port in Host and Origin.
+        default_port = 443 if url.scheme == "https" else 80
+        return host if port in (None, default_port) else authority
+
+    except ValueError as exc:
+        raise ValueError(f"Invalid GPU_TUNER_PUBLIC_URL: {exc}") from exc
+
 
 def make_handler(h: hub.Hub, token: str, port: int, cookie: str = COOKIE, demo: bool = False):
     """The page's request handler. `cookie` names the session cookie: demo mode uses its own, so
@@ -170,13 +183,14 @@ def make_handler(h: hub.Hub, token: str, port: int, cookie: str = COOKIE, demo: 
         import ipaddress
         lan_ip = str(ipaddress.IPv4Address(lan_ip))
         allowed_hosts.add(f"{lan_ip}:{port}")
-    public_host = public_url_host(
-        os.environ.get("GPU_TUNER_PUBLIC_URL", "").strip()
-    )
-    if public_host:
-        allowed_hosts.add(public_host)
+    public_url = os.environ.get("GPU_TUNER_PUBLIC_URL", "").strip()
+    public_host = public_url_host(public_url)
 
     origins = {f"http://{x}" for x in allowed_hosts}
+    if public_host:
+        from urllib.parse import urlsplit
+        allowed_hosts.add(public_host)
+        origins.add(f"{urlsplit(public_url).scheme}://{public_host}")
     login_limiter = LoginLimiter()
     browser_sessions = BrowserSessions(
         persistence_path=os.path.join(config_dir(), "browser-sessions.json"),
@@ -229,9 +243,18 @@ def make_handler(h: hub.Hub, token: str, port: int, cookie: str = COOKIE, demo: 
                 self._remembered_token = got.value
             return True
 
+        def _cookie_security(self):
+            from urllib.parse import urlsplit
+            if (
+                urlsplit(public_url).scheme == "https"
+                and self.headers.get("Host") == public_host
+            ):
+                return "; Secure"
+            return ""
+
         def _browser_cookie(self, browser_token, remember):
             persistence = f"; Max-Age={REMEMBER_SECONDS}" if remember else ""
-            return f"{cookie}={browser_token}; HttpOnly; SameSite=Strict; Path=/{persistence}"
+            return f"{cookie}={browser_token}; HttpOnly; SameSite=Strict{self._cookie_security()}; Path=/{persistence}"
 
         def _password_credential(self):
             """Read the current credential without performing password hashing."""
@@ -270,7 +293,7 @@ def make_handler(h: hub.Hub, token: str, port: int, cookie: str = COOKIE, demo: 
                 if redeem_nonce(qs["nonce"][0]):
                     self._send(303, b"", "text/plain", extra=(
                         ("Location", "/"),
-                        ("Set-Cookie", f"{cookie}={token}; HttpOnly; SameSite=Strict; Path=/")))
+                        ("Set-Cookie", f"{cookie}={token}; HttpOnly; SameSite=Strict{self._cookie_security()}; Path=/")))
                 else:
                     self._send(403, b"That link has expired or was already used. Run: gpu-tuner open\n",
                                "text/plain; charset=utf-8")
@@ -398,7 +421,7 @@ def make_handler(h: hub.Hub, token: str, port: int, cookie: str = COOKIE, demo: 
                     {"ok": True},
                     extra=((
                         "Set-Cookie",
-                        f"{cookie}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0",
+                        f"{cookie}=; HttpOnly; SameSite=Strict{self._cookie_security()}; Path=/; Max-Age=0",
                     ),),
                 )
                 return
