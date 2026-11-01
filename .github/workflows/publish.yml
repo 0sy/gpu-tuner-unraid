@@ -34,9 +34,19 @@ jobs:
       - name: Verify public Community Applications assets before publication
         run: python3 tests/check_unraid_assets.py --public
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build release image
         run: |
-          docker build --pull -f container/Dockerfile \
+          # Unraid's update checker only requests Docker manifest media types. BuildKit's
+          # default provenance attestation turns a single-platform image into an OCI index,
+          # which GHCR answers with 404 for that Accept header, so Unraid shows
+          # "not available". Export a plain Docker-schema image instead.
+          docker buildx build --pull --platform linux/amd64 \
+            --provenance=false --sbom=false \
+            --output type=docker,oci-mediatypes=false \
+            -f container/Dockerfile \
             --label "org.opencontainers.image.revision=$GITHUB_SHA" \
             --label "org.opencontainers.image.version=$RELEASE_VERSION" \
             -t "$IMAGE:$RELEASE_VERSION" -t "$IMAGE:latest" .
@@ -70,3 +80,19 @@ jobs:
         run: |
           docker push "$IMAGE:$RELEASE_VERSION"
           docker push "$IMAGE:latest"
+
+      - name: Verify Unraid-compatible image manifest
+        run: |
+          for tag in "$RELEASE_VERSION" latest; do
+            media_type=$(docker manifest inspect "$IMAGE:$tag" | python3 -c \
+              'import json, sys; print(json.load(sys.stdin)["mediaType"])')
+            case "$media_type" in
+              application/vnd.docker.distribution.manifest.v2+json|\
+              application/vnd.docker.distribution.manifest.list.v2+json)
+                ;;
+              *)
+                echo "::error::$IMAGE:$tag has a manifest type Unraid cannot check: $media_type"
+                exit 1
+                ;;
+            esac
+          done
