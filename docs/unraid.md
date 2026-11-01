@@ -28,7 +28,7 @@ Run only one GPU controller against the same cards at a time. Controls in the We
 
 ### Manual template installation
 
-The public image is `ghcr.io/0sy/gpu-tuner-unraid:latest`. Versioned tags are also available, including `1.3.1-unraid.1-beta.1`.
+The public image is `ghcr.io/0sy/gpu-tuner-unraid:latest`. Versioned tags are also available, including `1.3.1-unraid.1-beta.3`.
 
 Download [gpu-tuner.xml](https://raw.githubusercontent.com/0sy/gpu-tuner-unraid/main/templates/gpu-tuner.xml) and save it on Unraid as:
 
@@ -127,6 +127,7 @@ The template's 45-second stop timeout allows supervised shutdown and automatic f
 - **Password authentication unavailable:** check the logs and use password recovery if the stored hash is missing or invalid.
 - **GPU not detected:** check the NVIDIA Driver plugin, `nvidia-smi`, and the template's `--gpus all` parameter. Ensure the GPU is available to Docker.
 - **Controls unavailable:** some GPU models expose monitoring only. Check the capabilities reported in the WebUI.
+- **Update status shows “not available”:** this is Unraid's registry digest check, not an application or Community Applications failure. Use **force update** to pull the current image. If it persists, remove stale GHCR credentials with `docker logout ghcr.io`, then run **Check for Updates** again; the image is public and does not require a login. If the container is pinned to `1.3.1-unraid.1-beta.2`, change the repository tag to `:latest` or `1.3.1-unraid.1-beta.3`.
 - **Icon missing:** the template uses the public [PNG icon](https://raw.githubusercontent.com/0sy/gpu-tuner-unraid/main/icon.png). Refresh the Unraid Docker page and check that the server can download that URL.
 
 Report Unraid packaging issues at [0sy/gpu-tuner-unraid/issues](https://github.com/0sy/gpu-tuner-unraid/issues). Include the Unraid version, NVIDIA driver version, GPU model, image tag and relevant logs. Remove passwords, session tokens and credential hashes before sharing files or logs.
